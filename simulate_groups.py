@@ -2,35 +2,12 @@ import contextlib
 
 import numpy as np
 
-def simulate_cov_groups(p, num_groups, pcov_value=0.9):
-    """Simulate covariance matrix"""
-    # precision matrix
-    theta = np.zeros((p, p))
-
-    # correlation groups
-    network_groups = np.array_split(np.arange(p), num_groups)
-    for group in network_groups:
-        i = group[0]
-        for j in group[1:]:
-            theta[i, j] = pcov_value
-            theta[j, i] = pcov_value
-
-    # make matrix positive definite (invertible) by adding to diagonal
-    # https://nhigham.com/2021/02/16/diagonally-perturbing-a-symmetric-matrix-to-make-it-positive-definite/
-    min_eig = np.linalg.eig(theta)[0].min()
-    # the +1 to the diagonal makes matrix inversion a bit more numerically
-    # stable (since the minimum eigenvalue is the smallest possible
-    # diagonal perturbation)
-    theta = theta + ((-min_eig+1) * np.eye(p))
-
-    # then invert to get covariance matrix
-    # this ensures sigma is PSD
-    sigma = np.linalg.inv(theta)
-
-    return theta, sigma
-
-
-def simulate_ll(n, p, uncorr_frac, num_groups, seed=1, verbose=False):
+def simulate_ll(n,
+                p,
+                uncorr_frac,
+                num_groups,
+                group_sparsity=0.5,
+                seed=1):
     """TODO: document"""
 
     with _temp_seed(seed):
@@ -39,12 +16,8 @@ def simulate_ll(n, p, uncorr_frac, num_groups, seed=1, verbose=False):
         p_uncorr = int(uncorr_frac * p)
         p_corr = p - p_uncorr
 
-        if verbose:
-            print('Number of informative features: {}'.format(p_corr))
-            print('Number of uninformative features: {}'.format(p_uncorr))
-
         # start by generating a covariance matrix for correlated features
-        _, sigma = simulate_cov_groups(p_corr, num_groups)
+        _, sigma, groups = simulate_cov_groups(p_corr, num_groups)
         # then generate data from a MVN distribution with that covariance
         X_corr = np.random.multivariate_normal(mean=np.zeros(p_corr),
                                                cov=sigma,
@@ -62,20 +35,74 @@ def simulate_ll(n, p, uncorr_frac, num_groups, seed=1, verbose=False):
 
         # shuffle data and is_correlated indicators in same order, so we know
         # which features are correlated/not correlated with outcome
-        X, is_correlated = _shuffle_same(X, is_correlated)
+        # X, is_correlated = _shuffle_same(X, is_correlated)
 
-        # draw regression coefficients (betas) from N(0, 1), plus a bias
-        # TODO: add sparsity
-        B = np.random.randn(p_corr+1)
+        # decide which feature groups to keep and which to zero out
+        B = np.zeros((p_corr+1,))
+        num_groups = len(groups)
+        if group_sparsity < 1.0:
+            num_groups_to_keep = int(num_groups * group_sparsity)
+            groups_to_keep = np.random.choice(num_groups, num_groups_to_keep)
+        else:
+            groups_to_keep = np.arange(num_groups)
+
+        for g_ix, group in enumerate(groups):
+            if g_ix in groups_to_keep:
+                # all variables in same group have same coefficient
+                # (0 if we drop out that group)
+                # draw from N(0, 1)
+                B[group] = np.random.randn()
+
+        # sample bias from N(0, 1)
+        B[-1] = np.random.randn()
 
         # calculate Bernoulli parameter pi(x_i) for each sample x_i
-        linsum = B[0] + (X_corr @ B[1:, np.newaxis])
+        linsum = B[-1] + (X_corr @ B[:-1, np.newaxis])
         pis = 1 / (1 + np.exp(-linsum))
 
         # then sample labels y_i from a Bernoulli(pi_i)
         y = np.random.binomial(1, pis.flatten())
 
-    return (X, y, pis, is_correlated)
+        info_dict = {
+            'sigma': sigma,
+            'betas': B,
+            'pis': pis,
+            'groups': groups,
+            'is_correlated': is_correlated
+        }
+
+    return (X, y, info_dict)
+
+
+def simulate_cov_groups(p, num_groups, pcov_value=0.9):
+    """Simulate covariance matrix.
+
+    TODO document
+    """
+    # precision matrix
+    theta = np.zeros((p, p))
+
+    # correlation groups
+    groups = np.array_split(np.arange(p), num_groups)
+    for group in groups:
+        i = group[0]
+        for j in group[1:]:
+            theta[i, j] = pcov_value
+            theta[j, i] = pcov_value
+
+    # make matrix positive definite (invertible) by adding to diagonal
+    # https://nhigham.com/2021/02/16/diagonally-perturbing-a-symmetric-matrix-to-make-it-positive-definite/
+    min_eig = np.linalg.eig(theta)[0].min()
+    # the +1 to the diagonal makes matrix inversion a bit more numerically
+    # stable (since the minimum eigenvalue is the smallest possible
+    # diagonal perturbation)
+    theta = theta + ((-min_eig+1) * np.eye(p))
+
+    # then invert to get covariance matrix
+    # this ensures sigma is PSD
+    sigma = np.linalg.inv(theta)
+
+    return theta, sigma, groups
 
 
 def _shuffle_same(X, y):
