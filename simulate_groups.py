@@ -8,8 +8,37 @@ def simulate_ll(n,
                 num_groups,
                 group_sparsity=0.5,
                 seed=1):
-    """TODO: document"""
+    """Simulate data (features and labels) from a log-linear model.
 
+    For background on log-linear data simulation, see:
+    https://stats.stackexchange.com/a/46525
+
+    Labels are generated from a subset of the features (so some of
+    the features are uncorrelated with the label). Correlated features
+    have a block covariance structure (that is, there are num_groups
+    covariance blocks; samples within each group are highly correlated and
+    samples between groups should be uncorrelated).
+
+    Arguments
+    ----------
+    n (int): number of samples
+    p (int): number of features
+    uncorr_frac (float): fraction of features to be uncorrelated with outcome
+                         (must be between 0 and 1)
+    num_groups (int): number of groups/covariance blocks in the data
+                      (must be >0 and <=n)
+    group_sparsity (float): proportion of groups that will have nonzero
+                            coefficients (beta values) used to generate labels
+    seed (int): seed for random number generation
+
+    Returns
+    -------
+    X (array_like [n, p]): simulated features/samples
+    y (array_like [n, 1]): simulated labels in {0, 1}
+    info_dict (dict): dict containing parameters used to generate data
+                      (e.g. covariance matrix, feature groups, linear sum
+                       coefficients)
+    """
     with _temp_seed(seed):
 
         # calculate numbers of correlated and uncorrelated features
@@ -32,10 +61,6 @@ def simulate_ll(n,
         # this will be useful when we shuffle features
         is_correlated = np.zeros(X.shape[1]).astype('bool')
         is_correlated[:p_corr] = True
-
-        # shuffle data and is_correlated indicators in same order, so we know
-        # which features are correlated/not correlated with outcome
-        # X, is_correlated = _shuffle_same(X, is_correlated)
 
         # decide which feature groups to keep and which to zero out
         B = np.zeros((p_corr+1,))
@@ -75,14 +100,23 @@ def simulate_ll(n,
 
 
 def simulate_cov_groups(p, num_groups, pcov_value=0.9):
-    """Simulate covariance matrix.
+    """Simulate a positive definite (invertible) covariance matrix.
 
-    TODO document
+    The easiest way to do this is to set the precision matrix (inverse
+    of covariance matrix) to the desired correlations between variables, then
+    add to the diagonal to make the matrix positive definite. This can always
+    be done for a symmetric matrix, see:
+    https://nhigham.com/2021/02/16/diagonally-perturbing-a-symmetric-matrix-to-make-it-positive-definite/
     """
-    # precision matrix
+    # create and fill precision matrix
+    # the entries of the precision matrix specify partial correlations between
+    # variables
+    # https://en.wikipedia.org/wiki/Partial_correlation
     theta = np.zeros((p, p))
 
-    # correlation groups
+    # set correlation groups
+    # this makes sure all variables in the group are correlated
+    # (specifically, they will all have partial correlation pcov_value)
     groups = np.array_split(np.arange(p), num_groups)
     for group in groups:
         i = group[0]
@@ -90,16 +124,15 @@ def simulate_cov_groups(p, num_groups, pcov_value=0.9):
             theta[i, j] = pcov_value
             theta[j, i] = pcov_value
 
-    # make matrix positive definite (invertible) by adding to diagonal
-    # https://nhigham.com/2021/02/16/diagonally-perturbing-a-symmetric-matrix-to-make-it-positive-definite/
+    # make theta positive definite (invertible) by adding to diagonal
     min_eig = np.linalg.eig(theta)[0].min()
-    # the +1 to the diagonal makes matrix inversion a bit more numerically
+    # adding +1 to the diagonal makes matrix inversion a bit more numerically
     # stable (since the minimum eigenvalue is the smallest possible
     # diagonal perturbation)
     theta = theta + ((-min_eig+1) * np.eye(p))
 
     # then invert to get covariance matrix
-    # this ensures sigma is PSD
+    # sigma is by definition positive definite, since we just inverted it
     sigma = np.linalg.inv(theta)
 
     return theta, sigma, groups
