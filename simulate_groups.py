@@ -2,11 +2,11 @@ import contextlib
 import itertools as it
 
 import numpy as np
-
 def simulate_ll(n,
                 p,
                 uncorr_frac,
                 num_groups,
+                prev_betas=None,
                 group_sparsity=0.5,
                 seed=1):
     """Simulate data (features and labels) from a log-linear model.
@@ -28,6 +28,9 @@ def simulate_ll(n,
                          (must be between 0 and 1)
     num_groups (int): number of groups/covariance blocks in the data
                       (must be >0 and <=n)
+    prev_betas (array): a ndarray of betas generated in a previous run of
+                        simulate_ll, the groups with nonzero coefficients
+                        should be similar to these values with some noise
     group_sparsity (float): proportion of groups that will have nonzero
                             coefficients (beta values) used to generate labels
     seed (int): seed for random number generation
@@ -78,7 +81,16 @@ def simulate_ll(n,
                 # all variables in same group have same coefficient
                 # (0 if we drop out that group)
                 # draw from N(0, 1)
-                B[group] = np.random.randn()
+                if prev_betas is None:
+                    B[group] = np.random.randn()
+                # if there's a previous value of beta, add noise and
+                # confirm same directionality of old and new beta
+                else:
+                    new_beta = 0
+                    while new_beta * prev_betas[group][0] <= 0:
+                        added_noise = np.random.normal(scale=0.3)
+                        new_beta = prev_betas[group][0] + added_noise
+                    B[group] = new_beta
 
         # sample bias from N(0, 1)
         B[-1] = np.random.randn()
