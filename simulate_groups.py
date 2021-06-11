@@ -2,6 +2,10 @@ import contextlib
 import itertools as it
 
 import numpy as np
+
+BETA_NOISE_SCALE = 0.1
+
+
 def simulate_ll(n,
                 p,
                 uncorr_frac,
@@ -88,7 +92,7 @@ def simulate_ll(n,
                 else:
                     new_beta = 0
                     while new_beta * prev_betas[group][0] <= 0:
-                        added_noise = np.random.normal(scale=0.3)
+                        added_noise = np.random.normal(scale=BETA_NOISE_SCALE)
                         new_beta = prev_betas[group][0] + added_noise
                     B[group] = new_beta
 
