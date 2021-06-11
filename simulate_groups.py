@@ -152,7 +152,7 @@ def simulate_groups(p, num_groups, cov_value=0.5, eps=0.1):
 
     # set correlation groups
     # this makes sure all variables in the group are correlated
-    # (specifically, they will all have partial correlation pcov_value)
+    # (specifically, they will all have correlation cov_value)
     groups = np.array_split(np.arange(p), num_groups)
     for group in groups:
         for i, j in it.combinations(group, 2):
