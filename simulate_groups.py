@@ -1,4 +1,5 @@
 import contextlib
+import itertools as it
 
 import numpy as np
 
@@ -46,7 +47,8 @@ def simulate_ll(n,
         p_corr = p - p_uncorr
 
         # start by generating a covariance matrix for correlated features
-        _, sigma, groups = simulate_cov_groups(p_corr, num_groups)
+        # _, sigma, groups = simulate_cov_groups(p_corr, num_groups)
+        sigma, groups = simulate_groups(p_corr, num_groups)
         # then generate data from a MVN distribution with that covariance
         X_corr = np.random.multivariate_normal(mean=np.zeros(p_corr),
                                                cov=sigma,
@@ -58,7 +60,7 @@ def simulate_ll(n,
         X = np.concatenate((X_corr, X_uncorr), axis=1)
 
         # create a bool vector to remember which features are correlated
-        # this will be useful when we shuffle features
+        # this will be useful if we shuffle features
         is_correlated = np.zeros(X.shape[1]).astype('bool')
         is_correlated[:p_corr] = True
 
@@ -136,6 +138,34 @@ def simulate_cov_groups(p, num_groups, pcov_value=0.9):
     sigma = np.linalg.inv(theta)
 
     return theta, sigma, groups
+
+
+def simulate_groups(p, num_groups, cov_value=0.5, eps=0.1):
+    """Specify covariance matrix directly and simulate correlated blocks.
+
+    Directly specifying the covariance matrix works fine in the case
+    where we want groups of correlated features, although specifying
+    the precision matrix would allow more complex correlation patterns.
+    """
+    # create and fill covariance matrix directly
+    sigma = np.zeros((p, p))
+
+    # set correlation groups
+    # this makes sure all variables in the group are correlated
+    # (specifically, they will all have partial correlation pcov_value)
+    groups = np.array_split(np.arange(p), num_groups)
+    for group in groups:
+        for i, j in it.combinations(group, 2):
+            sigma[i, j] = cov_value
+            sigma[j, i] = cov_value
+
+    # make theta positive definite (invertible) by adding to diagonal
+    min_eig = np.linalg.eig(sigma)[0].min()
+    # adding small perturbation to the diagonal makes matrix inversion a
+    # bit more numerically stable (since the minimum eigenvalue is the
+    # smallest possible diagonal perturbation)
+    sigma = sigma + ((-min_eig + eps) * np.eye(p))
+    return sigma, groups
 
 
 def _shuffle_same(X, y):
