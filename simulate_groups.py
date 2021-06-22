@@ -1,3 +1,4 @@
+import random
 import contextlib
 import itertools as it
 
@@ -11,6 +12,7 @@ def simulate_ll(n,
                 uncorr_frac,
                 num_groups,
                 prev_betas=None,
+                prev_groups=None,
                 group_sparsity=0.5,
                 seed=1):
     """Simulate data (features and labels) from a log-linear model.
@@ -32,9 +34,11 @@ def simulate_ll(n,
                          (must be between 0 and 1)
     num_groups (int): number of groups/covariance blocks in the data
                       (must be >0 and <=n)
-    prev_betas (array): a ndarray of betas generated in a previous run of
+    prev_betas (array): an ndarray of betas generated in a previous run of
                         simulate_ll, the groups with nonzero coefficients
                         should be similar to these values with some noise
+    prev_groups (list): a list of indices of groups chosen to have nonzero 
+                        coefficients in a previous run of simulate_ll
     group_sparsity (float): proportion of groups that will have nonzero
                             coefficients (beta values) used to generate labels
     seed (int): seed for random number generation
@@ -76,7 +80,10 @@ def simulate_ll(n,
         num_groups = len(groups)
         if group_sparsity < 1.0:
             num_groups_to_keep = int(num_groups * group_sparsity)
-            groups_to_keep = np.random.choice(num_groups, num_groups_to_keep)
+            if prev_groups is None:
+                groups_to_keep = np.random.choice(num_groups, num_groups_to_keep, replace=False)
+            else:
+                groups_to_keep = np.random.choice(prev_groups, num_groups_to_keep, replace=False)
         else:
             groups_to_keep = np.arange(num_groups)
 
@@ -111,6 +118,7 @@ def simulate_ll(n,
             'betas': B,
             'pis': pis,
             'groups': groups,
+            'groups_to_keep': groups_to_keep,
             'is_correlated': is_correlated
         }
 
@@ -156,7 +164,7 @@ def simulate_cov_groups(p, num_groups, pcov_value=0.9):
     return theta, sigma, groups
 
 
-def simulate_groups(p, num_groups, cov_value=0.5, eps=0.1):
+def simulate_groups(p, num_groups, cov_value=0.9, eps=0.1):
     """Specify covariance matrix directly and simulate correlated blocks.
 
     Directly specifying the covariance matrix works fine in the case
